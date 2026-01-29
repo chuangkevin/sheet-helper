@@ -184,8 +184,21 @@ async function main() {
 
   // 解析庫存表（補充/更新資訊）
   console.log('\n解析庫存表...');
+
+  // 先找出「分配」欄位的索引
+  const invHeader = invRows[0]?.values || [];
+  let assignIdx = -1;
+  invHeader.forEach((cell: any, i: number) => {
+    const val = cell?.formattedValue?.trim() || '';
+    if (val === '分配') {
+      assignIdx = i;
+      console.log(`找到「分配」欄位，索引: ${i}`);
+    }
+  });
+
   let invCount = 0;
   let updatedCount = 0;
+  let ownerCount = 0;
   invRows.forEach((row: any, idx: number) => {
     if (idx < 1) return;
     const cells = row.values || [];
@@ -233,8 +246,22 @@ async function main() {
       if (invPrice) {
         existing.price = invPrice;
       }
+      // 更新負責人（從「分配」欄位）
+      if (assignIdx >= 0) {
+        const owner = cells[assignIdx]?.formattedValue?.trim() || '';
+        if (owner) {
+          existing.owner = owner;
+          ownerCount++;
+        }
+      }
     }
   });
+  console.log(`庫存表解析: ${invCount} 筆，更新了 ${updatedCount} 筆車況`);
+  if (assignIdx >= 0) {
+    console.log(`更新了 ${ownerCount} 筆負責人`);
+  } else {
+    console.log('⚠️ 未找到「分配」欄位');
+  }
   console.log(`庫存表解析: ${invCount} 筆，更新了 ${updatedCount} 筆車況`);
 
   // 統計

@@ -283,7 +283,13 @@ export async function openBrowser(url: string): Promise<void> {
     const open = (await import('open')).default;
     await open(url);
   } catch {
+    // Fallback: platform-specific command
     const { exec } = require('child_process');
-    exec(`start "" "${url}"`);
+    const cmd = process.platform === 'darwin'
+      ? `open "${url}"`
+      : process.platform === 'win32'
+        ? `start "" "${url}"`
+        : `xdg-open "${url}"`;
+    exec(cmd);
   }
 }

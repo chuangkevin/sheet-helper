@@ -19,6 +19,16 @@
 
 當使用者不知道要做什麼，或專案尚未設定完成時，請按以下步驟引導：
 
+### 0. 設定 VS Code Workspace
+
+如果母資料夾（例如 `~/Documents/汽車維護/`）還沒有 `.code-workspace` 檔案，請把 repo 內的 `汽車維護.code-workspace` 複製到母資料夾：
+
+```bash
+cp sheet-helper/汽車維護.code-workspace ../汽車維護.code-workspace
+```
+
+之後使用者只要雙擊這個檔案，就能在 VS Code 同時開啟 car-prompts、post-helper、sheet-helper 三個專案。
+
 ### 1. 先檢查設定狀態
 
 ```bash

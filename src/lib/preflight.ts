@@ -283,13 +283,19 @@ export async function openBrowser(url: string): Promise<void> {
     const open = (await import('open')).default;
     await open(url);
   } catch {
-    // Fallback: platform-specific command
-    const { exec } = require('child_process');
-    const cmd = process.platform === 'darwin'
-      ? `open "${url}"`
-      : process.platform === 'win32'
-        ? `start "" "${url}"`
-        : `xdg-open "${url}"`;
-    exec(cmd);
+    try {
+      // Fallback: platform-specific command
+      const { execSync } = require('child_process');
+      const cmd = process.platform === 'darwin'
+        ? `open "${url}"`
+        : process.platform === 'win32'
+          ? `start "" "${url}"`
+          : `xdg-open "${url}"`;
+      execSync(cmd, { stdio: 'ignore' });
+    } catch {
+      // All methods failed, show URL for manual opening
+      console.log(`\n⚠️ 無法自動開啟瀏覽器，請手動開啟以下網址：`);
+      console.log(`\n  ${url}\n`);
+    }
   }
 }

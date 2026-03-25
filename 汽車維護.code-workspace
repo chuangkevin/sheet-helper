@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"name": "car-prompts",
+			"path": "car-prompts"
+		},
+		{
+			"name": "post-helper",
+			"path": "post-helper"
+		},
+		{
+			"name": "sheet-helper",
+			"path": "sheet-helper"
+		}
+	],
+	"settings": {}
+}

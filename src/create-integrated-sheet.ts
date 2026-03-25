@@ -268,10 +268,24 @@ async function main() {
   // 創建新工作表
   console.log('\n📝 創建「整合庫存」工作表...');
 
+  // 安全名單：只有這些是程式產生的工作表，可以刪除重建
+  const SAFE_TO_DELETE = ['整合庫存'];
+  // 保護名單：這些是使用者的原始資料，絕對不能刪
+  const PROTECTED_SHEETS = ['車源', '庫存'];
+
   const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
   const existingSheet = spreadsheet.data.sheets?.find(s => s.properties?.title === '整合庫存');
 
   if (existingSheet) {
+    const sheetTitle = existingSheet.properties?.title || '';
+    if (PROTECTED_SHEETS.includes(sheetTitle)) {
+      console.error(`❌ 安全保護：不允許刪除「${sheetTitle}」工作表`);
+      process.exit(1);
+    }
+    if (!SAFE_TO_DELETE.includes(sheetTitle)) {
+      console.error(`❌ 安全保護：「${sheetTitle}」不在允許刪除的名單中`);
+      process.exit(1);
+    }
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: {

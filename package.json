@@ -6,7 +6,12 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "setup": "ts-node src/setup.ts",
+    "integrate": "ts-node src/create-integrated-sheet.ts",
+    "status": "ts-node src/check-status.ts",
+    "folders": "ts-node src/create-car-folders.ts",
+    "fix-width": "ts-node src/fix-width.ts"
   },
   "keywords": ["google-sheets", "inventory", "car-prompts"],
   "author": "",

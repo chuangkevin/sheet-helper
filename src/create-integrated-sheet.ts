@@ -2,21 +2,9 @@ import { google } from 'googleapis';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { preflight } from './lib/preflight';
 
 dotenv.config();
-
-const TOKEN_PATH = path.join(__dirname, '..', 'token.json');
-const CREDENTIALS_PATH = path.join(__dirname, '..', 'credentials.json');
-
-async function authorize() {
-  const content = fs.readFileSync(CREDENTIALS_PATH);
-  const credentials = JSON.parse(content.toString());
-  const { client_secret, client_id } = credentials.installed;
-  const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'urn:ietf:wg:oauth:2.0:oob');
-  const token = fs.readFileSync(TOKEN_PATH);
-  oAuth2Client.setCredentials(JSON.parse(token.toString()));
-  return oAuth2Client;
-}
 
 // 顏色判斷
 function getColorType(bgColor: any): string {
@@ -101,7 +89,7 @@ interface CarRecord {
 }
 
 async function main() {
-  const auth = await authorize();
+  const auth = await preflight({ needCarPrompts: false });
   const sheets = google.sheets({ version: 'v4', auth });
   const spreadsheetId = process.env.SPREADSHEET_ID!;
 

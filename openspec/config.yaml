@@ -1,20 +1,29 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  專案名稱：Sheet Helper — Google Sheets 車輛庫存管理整合工具
+  技術棧：TypeScript, Node.js, Google Sheets API v4, Google Drive API
+  執行環境：Windows (台灣業務團隊使用)
+  語言：UI/訊息使用繁體中文，程式碼使用英文
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  核心流程：
+  1. 讀取 Google Sheets「車源」+「庫存」工作表
+  2. 整合產生「整合庫存」工作表（含狀態偵測、下拉選單）
+  3. 為未 PO 車輛建立 car-prompts 資料夾（含 car-info.md）
+  4. car-prompts 資料夾供 PO 文生成工具使用
+
+  業務領域：台灣車輛進口/轉售業務
+  車源分類：國外進口(純數字/P)、台灣車(A)、託售(T)、寄賣(B)
+
+  外部依賴：
+  - Google OAuth 2.0 憑證 (credentials.json + token.json)
+  - 環境變數：SPREADSHEET_ID, CAR_PROMPTS_PATH
+  - car-prompts 專案（汽車資料子資料夾）
+
+rules:
+  proposal:
+    - 提案須包含「影響範圍」和「不做什麼」段落
+    - 面向使用者的文字一律使用繁體中文白話文，不使用技術術語
+  tasks:
+    - 每個任務不超過 2 小時
+    - 涉及認證變更的任務須標注「需要重新授權」

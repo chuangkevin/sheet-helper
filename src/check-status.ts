@@ -2,23 +2,17 @@ import { google } from 'googleapis';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import { preflight, findCarDataFolder } from './lib/preflight';
 
 dotenv.config();
 
-const TOKEN_PATH = path.join(__dirname, '..', 'token.json');
-const CREDENTIALS_PATH = path.join(__dirname, '..', 'credentials.json');
-const CAR_PROMPTS_PATH = 'D:\\Projects\\car-prompts\\汽車資料';
-
 async function main() {
-  const content = fs.readFileSync(CREDENTIALS_PATH);
-  const credentials = JSON.parse(content.toString());
-  const { client_secret, client_id } = credentials.installed;
-  const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, 'urn:ietf:wg:oauth:2.0:oob');
-  const token = fs.readFileSync(TOKEN_PATH);
-  oAuth2Client.setCredentials(JSON.parse(token.toString()));
-
-  const sheets = google.sheets({ version: 'v4', auth: oAuth2Client });
+  const auth = await preflight();
+  const sheets = google.sheets({ version: 'v4', auth });
   const spreadsheetId = process.env.SPREADSHEET_ID!;
+  const carPromptsBase = process.env.CAR_PROMPTS_PATH || '';
+  const carDataResult = findCarDataFolder(carPromptsBase);
+  const CAR_PROMPTS_PATH = carDataResult.path;
 
   // 讀取整合庫存
   const res = await sheets.spreadsheets.values.get({

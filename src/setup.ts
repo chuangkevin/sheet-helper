@@ -121,8 +121,8 @@ async function cmdSpreadsheet(input: string) {
   // Try to verify if we have credentials
   const status = checkStatus();
   if (status.credentialsValid && status.hasToken) {
+    const auth = await authorize();
     try {
-      const auth = await authorize();
       const sheets = google.sheets({ version: 'v4', auth });
       const res = await sheets.spreadsheets.get({ spreadsheetId: id });
 

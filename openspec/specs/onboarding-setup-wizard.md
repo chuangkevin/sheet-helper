@@ -10,6 +10,29 @@
 - 設定步驟散落在不同地方，容易漏掉
 - 缺少任何一個設定，程式就會報錯
 - 需要支援 AI CLI 工具（如 Gemini）自動執行，不能依賴互動式 stdin
+- 手動建立 Google Cloud OAuth 憑證對一般使用者太困難（需要建專案、同意畫面、憑證、測試使用者）
+
+## 認證方式
+
+### 推薦方式：gcloud ADC（Application Default Credentials）
+
+使用 `gcloud` CLI 全自動設定，**完全不需要手動建立 OAuth 同意畫面、憑證、或加測試使用者**。
+
+使用者全程只需在瀏覽器按兩次「允許」：
+
+1. `gcloud auth login` — 登入 Google 帳號
+2. `gcloud auth application-default login` — 授權應用程式存取
+
+### 備用方式：手動 credentials.json
+
+如果 gcloud CLI 不可用，可改用傳統方式：手動在 Google Cloud Console 建立 OAuth 桌面應用程式憑證，下載 JSON 檔案後設定。
+
+### 認證優先順序
+
+程式 `authorize()` 會依序嘗試：
+
+1. **ADC**：檢查 `~/.config/gcloud/application_default_credentials.json`（macOS/Linux）或 `%APPDATA%\gcloud\application_default_credentials.json`（Windows）
+2. **credentials.json + token.json**：傳統 OAuth Desktop App 方式
 
 ## CLI 介面設計
 
@@ -18,7 +41,8 @@
 ```bash
 npm run setup                              # 顯示目前設定狀態與下一步指引
 npm run setup -- status                    # 輸出 JSON 格式狀態（供 AI CLI 解析）
-npm run setup -- credentials <path>        # 設定 Google OAuth 憑證
+npm run setup -- init-gcloud               # 全自動 Google API 設定（推薦）
+npm run setup -- credentials <path>        # 手動設定 Google OAuth 憑證
 npm run setup -- auth                      # 執行 OAuth 授權（本地 HTTP server 接收回調）
 npm run setup -- spreadsheet <url-or-id>   # 連結 Google Sheets
 npm run setup -- car-prompts <path>        # 設定 car-prompts 路徑
@@ -34,50 +58,30 @@ npm run setup -- reset-auth                # 清除 token 並重新授權
 
 AI CLI 工具拿到這個專案後，應該：
 
-1. 執行 `npm run setup -- status` 取得 JSON 狀態
-2. 根據 `nextStep` 欄位，依序執行所需的子命令
-3. 每個子命令都會明確回報成功或失敗，以及下一步
+1. 確認 `gcloud` CLI 已安裝（沒有的話 `brew install google-cloud-sdk`）
+2. 執行 `npm run setup -- init-gcloud`（自動完成 Google API 設定）
+3. 執行 `npm run setup -- spreadsheet <url>`（使用者提供表格網址）
+4. 執行 `npm run setup -- car-prompts ../car-prompts`（自動偵測隔壁資料夾）
+5. 執行 `npm run setup -- status` 確認 `"ready": true`
 
-```json
-{
-  "ready": false,
-  "credentials": { "ok": false },
-  "auth": { "ok": false },
-  "spreadsheet": { "ok": false, "id": null },
-  "carPrompts": { "ok": false, "path": null, "carCount": 0 },
-  "nextStep": "npm run setup -- credentials <path-to-json>"
-}
-```
-
-### 步驟 1：設定 Google API 憑證
+### init-gcloud 子命令
 
 ```bash
-npm run setup -- credentials "C:\Users\xxx\Downloads\client_secret_xxxxx.json"
+npm run setup -- init-gcloud
 ```
 
-- 驗證檔案存在
-- 驗證 JSON 格式（必須包含 `installed.client_id` 和 `installed.client_secret`）
-- 自動複製到專案正確位置（使用者不需知道放哪）
-- 格式不對時顯示友善提示（不是 API Key、不是 Service Account）
+自動執行以下步驟：
 
-### 步驟 2：Google OAuth 授權
+1. **檢查 gcloud CLI** — 找不到則提示安裝方式
+2. **`gcloud auth login --brief`** — 開啟瀏覽器，使用者按「允許」
+3. **`gcloud projects create`** — 自動建立 Google Cloud 專案（ID: `sheet-helper-{timestamp}`）
+4. **`gcloud services enable sheets.googleapis.com`** — 啟用 Sheets API
+5. **`gcloud auth application-default login --scopes=...`** — 開啟瀏覽器取得 ADC，使用者按「允許」
+6. **`gcloud auth application-default set-quota-project`** — 設定配額專案
+7. **驗證 ADC 檔案存在** — 確認設定成功
+8. **顯示登入帳號** — 提醒使用者確認表格有分享給該帳號
 
-```bash
-npm run setup -- auth
-```
-
-- 在 `localhost:3456` 啟動臨時 HTTP server
-- 自動開啟瀏覽器到 Google 授權頁面
-- 使用者在瀏覽器登入並允許存取
-- 授權碼透過 HTTP 回調自動接收（無需手動複製貼上）
-- Token 自動儲存
-- 5 分鐘逾時自動結束
-
-**前提條件**：
-- 已完成步驟 1（credentials）
-- 使用者需在 Google Cloud Console 的 OAuth 用戶端設定中，新增重新導向 URI：`http://localhost:3456/oauth2callback`
-
-### 步驟 3：連結 Google Sheets
+### 連結 Google Sheets
 
 ```bash
 npm run setup -- spreadsheet "https://docs.google.com/spreadsheets/d/1lT0X2rx.../edit"
@@ -86,18 +90,19 @@ npm run setup -- spreadsheet "https://docs.google.com/spreadsheets/d/1lT0X2rx...
 - 接受完整 URL 或單純的 Spreadsheet ID
 - 自動從 URL 解析出 ID
 - 如果已有授權，會驗證表格是否可存取，並顯示表格名稱和工作表列表
-- 自動寫入設定
+- **權限錯誤時**：自動查詢已授權帳號的 email，告訴使用者「把 xxx@gmail.com 加進表格的共用設定」
+- 自動寫入 `.env`
 
-### 步驟 4：連結 car-prompts 資料夾
+### 連結 car-prompts 資料夾
 
 ```bash
-npm run setup -- car-prompts "D:\Projects\car-prompts"
+npm run setup -- car-prompts "../car-prompts"
 ```
 
 - 自動在路徑下尋找「汽車資料」子資料夾
 - 如果路徑本身就是汽車資料（裡面有 `年份 品牌...` 格式的子資料夾），也能辨識
 - 顯示找到幾台車的資料
-- 自動寫入設定
+- 自動寫入 `.env`
 
 ---
 
@@ -106,11 +111,12 @@ npm run setup -- car-prompts "D:\Projects\car-prompts"
 每個指令（integrate、status、folders、fix-width）執行時，會先做 preflight check：
 
 ```
-if (!credentials) → 印出「請先執行 npm run setup -- credentials <path>」並結束
-if (!spreadsheetId) → 印出「請先執行 npm run setup -- spreadsheet <url>」並結束
-if (!carPromptsPath) → 印出「請先執行 npm run setup -- car-prompts <path>」並結束（僅需要 car-prompts 的指令）
-if (!token) → 自動啟動 OAuth 流程
+if (!authReady) → 印出「請先執行 npm run setup -- init-gcloud」並結束
+if (!spreadsheetId) → 印出「請先執行 npm run setup」並結束
+if (!carPromptsPath) → 印出「請先執行 npm run setup」並結束（僅需要 car-prompts 的指令）
 ```
+
+`authReady` 為 `true` 的條件：ADC 存在 **或** (credentials.json 有效 + token.json 存在)
 
 ### preflight 選項
 
@@ -131,10 +137,9 @@ if (!token) → 自動啟動 OAuth 流程
 ```
 🚗 Sheet Helper 設定狀態
 
-  ✅ Google API 憑證    — 已設定
-  ✅ Google 帳號授權    — 已授權
+  ✅ Google API 認證    — gcloud（自動）
   ✅ Google Sheets      — 1lT0X2rxALWO...
-  ✅ car-prompts 資料夾 — D:\Projects\car-prompts（75 台車）
+  ✅ car-prompts 資料夾 — ../car-prompts（75 台車）
 
 🎉 設定完成！可以開始使用：
   npm run integrate    建立整合庫存表
@@ -146,16 +151,18 @@ if (!token) → 自動啟動 OAuth 流程
 ### JSON 格式（`npm run setup -- status`）
 
 供 AI CLI 工具解析：
+
 ```json
 {
   "ready": true,
-  "credentials": { "ok": true },
-  "auth": { "ok": true },
+  "auth": { "ok": true, "method": "gcloud-adc" },
   "spreadsheet": { "ok": true, "id": "1lT0X2rx..." },
-  "carPrompts": { "ok": true, "path": "D:\\Projects\\car-prompts", "carCount": 75 },
+  "carPrompts": { "ok": true, "path": "../car-prompts", "carCount": 75 },
   "nextStep": null
 }
 ```
+
+`auth.method` 可能的值：`"gcloud-adc"` | `"credentials.json"` | `"none"`
 
 ---
 
@@ -163,15 +170,19 @@ if (!token) → 自動啟動 OAuth 流程
 
 | 情境 | 處理方式 |
 |------|---------|
+| gcloud CLI 未安裝 | macOS: 「請先安裝：brew install google-cloud-sdk」 |
+| gcloud 登入失敗 | 「登入 Google 帳號失敗」+ exit 1 |
 | JSON 檔案格式錯誤 | 「檔案格式不正確，請確認下載的是『桌面應用程式』類型的 OAuth 憑證」 |
 | 網路連線失敗 | 「無法連上 Google，請確認網路連線」 |
-| Sheets 無權限 | 「沒有權限存取這個表格，請確認表格已分享給你授權的 Google 帳號」 |
+| Sheets 無權限（403/401） | 顯示已登入 email + 分享步驟（「點右上角共用，把 xxx@gmail.com 加進去」）|
+| Sheets 找不到（404） | 「找不到這個表格，請確認網址是正確的」 |
 | car-prompts 路徑不存在 | 「找不到路徑：xxx」 |
 | car-prompts 內無汽車資料 | 「在這個路徑下找不到『汽車資料』資料夾」 |
 | OAuth 逾時 | 「授權逾時（5 分鐘），請重新執行」 |
 | 未帶參數 | 顯示該子命令的用法和範例 |
 
 所有錯誤都以 exit code 1 結束，方便 CI/AI 工具判斷。
+所有面向使用者的訊息使用繁體中文白話文，不使用技術術語。
 
 ---
 
@@ -182,13 +193,23 @@ if (!token) → 自動啟動 OAuth 流程
 - `src/setup.ts` — CLI 子命令路由與各步驟實作
 - `src/lib/preflight.ts` — Preflight check + 共用 utilities（auth、env 讀寫、路徑驗證）
 
-### OAuth 回調機制
+### 認證模組
+
+`preflight.ts` 的 `authorize()` 函數：
+
+1. 檢查 ADC 檔案是否存在（`getAdcPath()`）
+2. 如果有，使用 `GoogleAuth` 建立 client
+3. 如果沒有，fallback 到 `credentials.json` + `token.json` 流程
+4. `token.json` 不存在時，啟動本地 HTTP server（`localhost:3456`）接收 OAuth 回調
+
+### OAuth 回調機制（備用方式）
 
 使用 Node.js `http` 模組在 `localhost:3456` 建立臨時 HTTP server：
+
 - 接收 `/oauth2callback?code=xxx` 回調
 - 自動交換 token
 - 回傳成功頁面給瀏覽器
-- 關閉 server
+- 關閉 server + `process.exit(0)` 確保程式結束
 
 ### package.json scripts
 
@@ -204,10 +225,10 @@ if (!token) → 自動啟動 OAuth 流程
 
 ### 依賴
 
-全部使用 Node.js 內建模組 + 已安裝的套件，不需新增依賴：
+- `googleapis` — Google Sheets API client
+- `google-auth-library`（googleapis 的依賴）— ADC 支援
 - `http`（內建）— OAuth 回調 server
-- `url`（內建）— URL parsing
-- `fs` / `path`（內建）— 檔案操作
+- `child_process`（內建）— 執行 gcloud 指令
 - `open`（已安裝）— 開啟瀏覽器
 
 ---
@@ -216,6 +237,6 @@ if (!token) → 自動啟動 OAuth 流程
 
 - 不做互動式 stdin 輸入（readline）— 所有操作都透過 CLI 參數
 - 不做 GUI 介面
-- 不自動建立 Google Cloud 專案（需要使用者手動登入 Google）
-- 不處理 Service Account 認證方式（只支援 OAuth Desktop App）
 - 不在設定過程中教使用者怎麼用 Google Sheets（只設定連線）
+- 不處理 Service Account 認證方式
+- 不自動修改或刪除 Google Sheets 的「車源」和「庫存」工作表

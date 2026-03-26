@@ -2,7 +2,7 @@ import { google } from 'googleapis';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
-import * as url from 'url';
+// Note: using WHATWG URL API instead of deprecated url.parse
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -107,14 +107,14 @@ async function getNewTokenViaLocalServer(oAuth2Client: any): Promise<any> {
   return new Promise((resolve, reject) => {
     const server = http.createServer(async (req, res) => {
       try {
-        const parsedUrl = url.parse(req.url || '', true);
+        const parsedUrl = new URL(req.url || '', 'http://localhost:3456');
         if (parsedUrl.pathname !== '/oauth2callback') {
           res.writeHead(404);
           res.end();
           return;
         }
 
-        const code = parsedUrl.query.code as string;
+        const code = parsedUrl.searchParams.get('code');
         if (!code) {
           res.writeHead(400);
           res.end('缺少授權碼');
@@ -128,7 +128,10 @@ async function getNewTokenViaLocalServer(oAuth2Client: any): Promise<any> {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end('<html><body><h1>✅ 授權成功！</h1><p>你可以關閉這個頁面了。</p></body></html>');
 
-        server.close();
+        server.close(() => {
+          // Ensure all connections are destroyed so process can exit
+          server.unref();
+        });
         console.log('✅ Google 帳號已連結成功！');
         resolve(oAuth2Client);
       } catch (err) {
@@ -166,20 +169,20 @@ export async function preflight(options?: { needCarPrompts?: boolean }): Promise
   const needCar = options?.needCarPrompts ?? true;
 
   if (!status.credentialsValid) {
-    console.error('❌ 還沒設定 Google API 憑證');
-    console.error('請先執行：npm run setup credentials <path-to-json>');
+    console.error('❌ 還沒設定好，請先執行：npm run setup');
+    console.error('   （缺少 Google 憑證）');
     process.exit(1);
   }
 
   if (!status.hasSpreadsheetId) {
-    console.error('❌ 還沒連結 Google Sheets');
-    console.error('請先執行：npm run setup spreadsheet <url>');
+    console.error('❌ 還沒設定好，請先執行：npm run setup');
+    console.error('   （還沒連結你的 Google 表格）');
     process.exit(1);
   }
 
   if (needCar && !status.hasCarPromptsPath) {
-    console.error('❌ 還沒設定 car-prompts 資料夾路徑');
-    console.error('請先執行：npm run setup car-prompts <path>');
+    console.error('❌ 還沒設定好，請先執行：npm run setup');
+    console.error('   （還沒指定汽車資料的位置）');
     process.exit(1);
   }
 

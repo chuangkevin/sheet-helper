@@ -133,11 +133,17 @@ async function cmdSpreadsheet(input: string) {
       console.log(`   工作表：${sheetNames.join('、')}`);
     } catch (err: any) {
       if (err?.code === 403 || err?.code === 401) {
-        console.error('❌ 沒有權限存取這個表格');
-        console.error('請確認表格已分享給你授權的 Google 帳號');
+        console.error('❌ 沒辦法打開這個表格');
+        console.error('');
+        console.error('可能的原因：');
+        console.error('  1. 這個表格沒有分享給你 — 請打開表格，點右上角「共用」，把你自己的 Gmail 加進去');
+        console.error('  2. 你剛剛登入的 Google 帳號不是表格的擁有者 — 請確認是同一個帳號');
+        console.error('');
+        console.error('修好之後，再執行一次同樣的指令就可以了。');
         process.exit(1);
       } else if (err?.code === 404) {
-        console.error('❌ 找不到這個表格，請確認網址或 ID 是否正確');
+        console.error('❌ 找不到這個表格');
+        console.error('請確認你貼的網址是正確的，打開那個網址應該要能看到表格。');
         process.exit(1);
       } else {
         // Save anyway, might be a network issue
@@ -209,14 +215,15 @@ async function cmdAuth() {
     return;
   }
 
-  console.log('開啟瀏覽器進行 Google OAuth 授權...');
-  console.log('請在瀏覽器中登入 Google 帳號並允許存取。');
-  console.log('授權完成後，這裡會自動收到回調。\n');
+  console.log('正在開啟瀏覽器，請在瀏覽器登入你的 Google 帳號並按「允許」...\n');
 
   await authorize();
 
   const newStatus = checkStatus();
   printNextStep(newStatus);
+
+  // Force exit — OAuth server may keep sockets open
+  process.exit(0);
 }
 
 // ── reset-auth ──────────────────────────────────────────────────
@@ -235,6 +242,10 @@ async function cmdResetAuth() {
 
   console.log('正在重新授權...\n');
   await authorize();
+
+  const newStatus = checkStatus();
+  printNextStep(newStatus);
+  process.exit(0);
 }
 
 // ── guide ───────────────────────────────────────────────────────

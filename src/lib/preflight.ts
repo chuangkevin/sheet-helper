@@ -14,7 +14,10 @@ export const TOKEN_PATH = path.join(PROJECT_ROOT, 'token.json');
 export const ENV_PATH = path.join(PROJECT_ROOT, '.env');
 export const ENV_EXAMPLE_PATH = path.join(PROJECT_ROOT, '.env.example');
 
-const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/userinfo.email',
+];
 
 // ── Status types ────────────────────────────────────────────────
 export interface PreflightStatus {
@@ -80,6 +83,17 @@ export function checkStatus(): PreflightStatus {
     carPromptsValid,
     carCount,
   };
+}
+
+// ── Get authorized email ─────────────────────────────────────────
+export async function getAuthorizedEmail(auth: any): Promise<string | null> {
+  try {
+    const oauth2 = google.oauth2({ version: 'v2', auth });
+    const res = await oauth2.userinfo.get();
+    return res.data.email || null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Authorize (consolidated OAuth flow) ─────────────────────────

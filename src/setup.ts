@@ -3,6 +3,7 @@ import * as path from 'path';
 import {
   checkStatus,
   authorize,
+  getAuthorizedEmail,
   parseSpreadsheetUrl,
   validateCredentialsFile,
   findCarDataFolder,
@@ -133,13 +134,22 @@ async function cmdSpreadsheet(input: string) {
       console.log(`   工作表：${sheetNames.join('、')}`);
     } catch (err: any) {
       if (err?.code === 403 || err?.code === 401) {
+        const email = await getAuthorizedEmail(auth);
         console.error('❌ 沒辦法打開這個表格');
         console.error('');
-        console.error('可能的原因：');
-        console.error('  1. 這個表格沒有分享給你 — 請打開表格，點右上角「共用」，把你自己的 Gmail 加進去');
-        console.error('  2. 你剛剛登入的 Google 帳號不是表格的擁有者 — 請確認是同一個帳號');
+        if (email) {
+          console.error(`你目前登入的帳號是：${email}`);
+          console.error('');
+          console.error('請這樣做：');
+          console.error('  1. 在瀏覽器打開你的 Google 表格');
+          console.error('  2. 點右上角綠色的「共用」按鈕');
+          console.error(`  3. 把 ${email} 加進去，權限選「編輯者」`);
+          console.error('  4. 按「完成」');
+        } else {
+          console.error('請打開你的 Google 表格，點右上角「共用」，把你剛剛登入的 Gmail 加進去。');
+        }
         console.error('');
-        console.error('修好之後，再執行一次同樣的指令就可以了。');
+        console.error('弄好之後，再執行一次同樣的指令就可以了。');
         process.exit(1);
       } else if (err?.code === 404) {
         console.error('❌ 找不到這個表格');
@@ -217,7 +227,11 @@ async function cmdAuth() {
 
   console.log('正在開啟瀏覽器，請在瀏覽器登入你的 Google 帳號並按「允許」...\n');
 
-  await authorize();
+  const auth = await authorize();
+  const email = await getAuthorizedEmail(auth);
+  if (email) {
+    console.log(`已登入帳號：${email}`);
+  }
 
   const newStatus = checkStatus();
   printNextStep(newStatus);

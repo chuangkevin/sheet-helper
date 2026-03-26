@@ -11,6 +11,7 @@ dotenv.config();
 // ── Path constants ──────────────────────────────────────────────
 export const PROJECT_ROOT = path.join(__dirname, '..', '..');
 export const CREDENTIALS_PATH = path.join(PROJECT_ROOT, 'credentials.json');
+export const SERVICE_ACCOUNT_PATH = path.join(PROJECT_ROOT, 'service-account.json');
 export const TOKEN_PATH = path.join(PROJECT_ROOT, 'token.json');
 export const ENV_PATH = path.join(PROJECT_ROOT, '.env');
 export const ENV_EXAMPLE_PATH = path.join(PROJECT_ROOT, '.env.example');
@@ -37,9 +38,11 @@ export interface PreflightStatus {
   hasNodeModules: boolean;
   hasCredentials: boolean;
   credentialsValid: boolean;
+  hasServiceAccount: boolean;
+  serviceAccountValid: boolean;
   hasToken: boolean;
   hasAdc: boolean;            // gcloud ADC available
-  authReady: boolean;         // either (credentials+token) or ADC
+  authReady: boolean;         // (credentials+token) or service-account or ADC
   hasEnv: boolean;
   hasSpreadsheetId: boolean;
   spreadsheetId: string | null;
@@ -62,9 +65,18 @@ export function checkStatus(): PreflightStatus {
     } catch {}
   }
 
+  const hasServiceAccount = fs.existsSync(SERVICE_ACCOUNT_PATH);
+  let serviceAccountValid = false;
+  if (hasServiceAccount) {
+    try {
+      const content = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, 'utf-8'));
+      serviceAccountValid = content?.type === 'service_account' && !!content?.client_email && !!content?.private_key;
+    } catch {}
+  }
+
   const hasToken = fs.existsSync(TOKEN_PATH);
   const adcAvailable = hasAdc();
-  const authReady = (credentialsValid && hasToken) || adcAvailable;
+  const authReady = (credentialsValid && hasToken) || serviceAccountValid || adcAvailable;
 
   const hasEnv = fs.existsSync(ENV_PATH);
   let spreadsheetId: string | null = null;
@@ -91,6 +103,8 @@ export function checkStatus(): PreflightStatus {
     hasNodeModules,
     hasCredentials,
     credentialsValid,
+    hasServiceAccount,
+    serviceAccountValid,
     hasToken,
     hasAdc: adcAvailable,
     authReady,
@@ -106,6 +120,14 @@ export function checkStatus(): PreflightStatus {
 
 // ── Get authorized email ─────────────────────────────────────────
 export async function getAuthorizedEmail(auth: any): Promise<string | null> {
+  // If it's a ServiceAccount object or has credentials with client_email
+  if (auth?.credentials?.client_email) {
+    return auth.credentials.client_email;
+  }
+  if (auth?.client_email) {
+    return auth.client_email;
+  }
+
   try {
     const oauth2 = google.oauth2({ version: 'v2', auth });
     const res = await oauth2.userinfo.get();
@@ -115,9 +137,23 @@ export async function getAuthorizedEmail(auth: any): Promise<string | null> {
   }
 }
 
-// ── Authorize (try ADC first, then credentials.json) ────────────
+// ── Authorize (try Service Account, then ADC, then credentials.json) ────────────
 export async function authorize(): Promise<any> {
-  // Strategy 1: ADC (gcloud auth application-default login)
+  // Strategy 1: Service Account (Recommended for servers/CLI without local browser)
+  if (fs.existsSync(SERVICE_ACCOUNT_PATH)) {
+    try {
+      const auth = new google.auth.GoogleAuth({
+        keyFile: SERVICE_ACCOUNT_PATH,
+        scopes: SCOPES,
+      });
+      const client = await auth.getClient();
+      return client;
+    } catch (err) {
+      // Service account failed, try next
+    }
+  }
+
+  // Strategy 2: ADC (gcloud auth application-default login)
   if (hasAdc()) {
     try {
       const auth = new GoogleAuth({ scopes: SCOPES });
@@ -128,7 +164,7 @@ export async function authorize(): Promise<any> {
     }
   }
 
-  // Strategy 2: Traditional credentials.json + token.json
+  // Strategy 3: Traditional credentials.json + token.json
   if (!fs.existsSync(CREDENTIALS_PATH)) {
     throw new Error('找不到 Google 憑證。請執行 npm run setup -- init-gcloud 自動設定，或 npm run setup -- credentials <path> 手動設定');
   }
@@ -248,6 +284,16 @@ export function validateCredentialsFile(filePath: string): boolean {
   try {
     const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
     return !!(content?.installed?.client_id && content?.installed?.client_secret);
+  } catch {
+    return false;
+  }
+}
+
+// ── Utility: validate service account JSON ──────────────────────
+export function validateServiceAccountFile(filePath: string): boolean {
+  try {
+    const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    return content?.type === 'service_account' && !!content?.client_email && !!content?.private_key;
   } catch {
     return false;
   }

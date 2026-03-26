@@ -8,11 +8,13 @@ import {
   hasAdc,
   parseSpreadsheetUrl,
   validateCredentialsFile,
+  validateServiceAccountFile,
   findCarDataFolder,
   sanitizePath,
   writeEnvValue,
   openBrowser,
   CREDENTIALS_PATH,
+  SERVICE_ACCOUNT_PATH,
   TOKEN_PATH,
   PROJECT_ROOT,
 } from './lib/preflight';
@@ -25,7 +27,7 @@ import { google } from 'googleapis';
 //   npm run setup                              顯示目前設定狀態與下一步指引
 //   npm run setup -- status                    同上（JSON 格式輸出）
 //   npm run setup -- init-gcloud               全自動設定 Google API（推薦）
-//   npm run setup -- credentials <path>        手動設定 Google OAuth 憑證
+//   npm run setup -- credentials <path>        手動設定 Google OAuth 憑證或 Service Account
 //   npm run setup -- spreadsheet <url-or-id>   設定 Google Sheets
 //   npm run setup -- car-prompts <path>        設定 car-prompts 路徑
 //   npm run setup -- auth                      執行 OAuth 授權（開啟瀏覽器，自動接收回調）
@@ -43,6 +45,7 @@ async function main() {
       await cmdInitGcloud();
       break;
     case 'credentials':
+    case 'service-account':
       await cmdCredentials(commandArg);
       break;
     case 'spreadsheet':
@@ -206,12 +209,6 @@ async function cmdCredentials(filePath: string) {
   if (!filePath) {
     console.error('❌ 請提供憑證 JSON 檔案路徑');
     console.error('用法：npm run setup -- credentials <path-to-json>');
-    console.error('');
-    console.error('取得方式：');
-    console.error('  1. 前往 https://console.cloud.google.com/apis/credentials');
-    console.error('  2. 建立 OAuth 2.0 用戶端 ID（類型選「桌面應用程式」）');
-    console.error('  3. 下載 JSON 檔案');
-    console.error('  4. 執行此命令並帶入檔案路徑');
     process.exit(1);
   }
 
@@ -222,15 +219,17 @@ async function cmdCredentials(filePath: string) {
     process.exit(1);
   }
 
-  if (!validateCredentialsFile(cleaned)) {
+  if (validateServiceAccountFile(cleaned)) {
+    fs.copyFileSync(cleaned, SERVICE_ACCOUNT_PATH);
+    console.log('✅ Service Account 憑證已設定');
+  } else if (validateCredentialsFile(cleaned)) {
+    fs.copyFileSync(cleaned, CREDENTIALS_PATH);
+    console.log('✅ OAuth 憑證已設定');
+  } else {
     console.error('❌ 檔案格式不正確');
-    console.error('請確認下載的是「桌面應用程式」類型的 OAuth 憑證');
-    console.error('（不是 API Key，也不是 Service Account）');
+    console.error('請確認下載的是「桌面應用程式」類型的 OAuth 憑證或 Service Account 金鑰');
     process.exit(1);
   }
-
-  fs.copyFileSync(cleaned, CREDENTIALS_PATH);
-  console.log('✅ Google API 憑證已設定');
 
   // Show next step
   const status = checkStatus();
@@ -341,7 +340,7 @@ async function cmdCarPrompts(inputPath: string) {
   writeEnvValue('CAR_PROMPTS_PATH', cleaned);
   console.log(`✅ 已設定 car-prompts 路徑`);
   console.log(`   汽車資料位置：${result.path}`);
-  console.log(`   找到 ${result.count} 台車的資料`);
+  console.log(`   找到 ${result.count} 台車의資料`);
 
   const newStatus = checkStatus();
   printNextStep(newStatus);
@@ -350,6 +349,16 @@ async function cmdCarPrompts(inputPath: string) {
 // ── auth ────────────────────────────────────────────────────────
 async function cmdAuth() {
   const status = checkStatus();
+
+  if (status.serviceAccountValid) {
+    console.log('ℹ️ 正在使用 Service Account，不需要額外執行 auth 命令。');
+    const auth = await authorize();
+    const email = await getAuthorizedEmail(auth);
+    if (email) {
+      console.log(`Service Account Email: ${email}`);
+    }
+    return;
+  }
 
   if (!status.credentialsValid) {
     console.error('❌ 請先設定 Google API 憑證');
@@ -386,6 +395,11 @@ async function cmdResetAuth() {
   }
 
   const status = checkStatus();
+  if (status.serviceAccountValid) {
+    console.log('ℹ️ 正在使用 Service Account，重置 auth token 對其無影響。');
+    return;
+  }
+
   if (!status.credentialsValid) {
     console.error('❌ 請先設定 Google API 憑證');
     console.error('執行：npm run setup -- credentials <path-to-json>');
@@ -413,34 +427,21 @@ function cmdGuide() {
 步驟 1：取得 Google API 憑證
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  1. 開啟 Google Cloud Console：
-     https://console.cloud.google.com/projectcreate
+  方式 A：Service Account (最推薦，不需要瀏覽器)
+  1. 前往 Google Cloud Console 建立服務帳戶並下載 JSON 金鑰
+  2. 執行：npm run setup -- credentials "path/to/service-account.json"
+  3. ⚠️ 重要：將 Service Account 的 Email 加入你的 Google Sheet 共用名單（編輯者權限）
 
-  2. 建立一個新專案（名字隨便取，例如「車輛管理」）
-
-  3. 啟用 Google Sheets API：
-     https://console.cloud.google.com/apis/library/sheets.googleapis.com
-
-  4. 設定 OAuth 同意畫面：
-     https://console.cloud.google.com/apis/credentials/consent
-     - User Type 選「外部」
-     - 應用程式名稱隨便填
-     - 填入你的 email
-     - 在「測試使用者」加入你自己的 Google 帳號 email
-
-  5. 建立 OAuth 用戶端 ID：
-     https://console.cloud.google.com/apis/credentials/oauthclient
-     - 類型選「桌面應用程式」
-     - 建立後下載 JSON 檔案
-
-  6. ⚠️ 重要：在 OAuth 用戶端設定中，新增授權的重新導向 URI：
-     http://localhost:3456/oauth2callback
-
-  7. 執行以下命令，帶入下載的 JSON 檔案路徑：
-     npm run setup -- credentials "C:\\path\\to\\downloaded.json"
+  方式 B：OAuth 2.0 (適用於個人帳號)
+  1. 開啟 Google Cloud Console：https://console.cloud.google.com/projectcreate
+  2. 啟用 Google Sheets API
+  3. 設定 OAuth 同意畫面
+  4. 建立 OAuth 用戶端 ID（類型選「桌面應用程式」）並下載 JSON
+  5. 執行：npm run setup -- credentials "path/to/credentials.json"
+  6. 執行：npm run setup -- auth
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-步驟 2：Google 帳號授權
+步驟 2：Google 帳號授權 (僅 OAuth 需要)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   執行：npm run setup -- auth
@@ -459,15 +460,6 @@ function cmdGuide() {
 
   執行：npm run setup -- car-prompts "D:\\Projects\\car-prompts"
   路徑下應包含「汽車資料」子資料夾。
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-設定完成後，可使用以下命令：
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  npm run integrate    建立整合庫存表
-  npm run status       檢查庫存和 PO 狀態
-  npm run folders      為未 PO 車輛建立資料夾
-  npm run fix-width    調整表格欄寬
 `);
 }
 
@@ -475,7 +467,11 @@ function cmdGuide() {
 function cmdStatus() {
   const status = checkStatus();
 
-  const authLabel = status.hasAdc ? '— gcloud（自動）' : status.credentialsValid ? '— credentials.json' : '';
+  let authLabel = '';
+  if (status.serviceAccountValid) authLabel = '— Service Account';
+  else if (status.hasAdc) authLabel = '— gcloud（自動）';
+  else if (status.credentialsValid) authLabel = '— credentials.json';
+
   const authOk = status.authReady;
 
   console.log(`\n🚗 Sheet Helper 設定狀態\n`);
@@ -501,9 +497,14 @@ function cmdStatusJson() {
   const status = checkStatus();
   const allDone = status.authReady && status.hasSpreadsheetId && status.carPromptsValid;
 
+  let method = 'none';
+  if (status.serviceAccountValid) method = 'service-account';
+  else if (status.hasAdc) method = 'gcloud-adc';
+  else if (status.credentialsValid) method = 'credentials.json';
+
   const output = {
     ready: allDone,
-    auth: { ok: status.authReady, method: status.hasAdc ? 'gcloud-adc' : status.credentialsValid ? 'credentials.json' : 'none' },
+    auth: { ok: status.authReady, method },
     spreadsheet: { ok: status.hasSpreadsheetId, id: status.spreadsheetId },
     carPrompts: {
       ok: status.carPromptsValid,
@@ -518,7 +519,7 @@ function cmdStatusJson() {
 
 // ── Helpers ─────────────────────────────────────────────────────
 function getNextStepCommand(status: ReturnType<typeof checkStatus>): string {
-  if (!status.authReady) return 'npm run setup -- init-gcloud';
+  if (!status.authReady) return 'npm run setup -- credentials <path>';
   if (!status.hasSpreadsheetId) return 'npm run setup -- spreadsheet <url>';
   if (!status.carPromptsValid) return 'npm run setup -- car-prompts <path>';
   return '';

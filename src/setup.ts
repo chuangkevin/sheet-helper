@@ -1,9 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import {
   checkStatus,
   authorize,
   getAuthorizedEmail,
+  hasAdc,
   parseSpreadsheetUrl,
   validateCredentialsFile,
   findCarDataFolder,
@@ -22,7 +24,8 @@ import { google } from 'googleapis';
 // 用法：
 //   npm run setup                              顯示目前設定狀態與下一步指引
 //   npm run setup -- status                    同上（JSON 格式輸出）
-//   npm run setup -- credentials <path>        設定 Google OAuth 憑證
+//   npm run setup -- init-gcloud               全自動設定 Google API（推薦）
+//   npm run setup -- credentials <path>        手動設定 Google OAuth 憑證
 //   npm run setup -- spreadsheet <url-or-id>   設定 Google Sheets
 //   npm run setup -- car-prompts <path>        設定 car-prompts 路徑
 //   npm run setup -- auth                      執行 OAuth 授權（開啟瀏覽器，自動接收回調）
@@ -36,6 +39,9 @@ const commandArg = args.slice(1).join(' ');
 
 async function main() {
   switch (command) {
+    case 'init-gcloud':
+      await cmdInitGcloud();
+      break;
     case 'credentials':
       await cmdCredentials(commandArg);
       break;
@@ -61,6 +67,138 @@ async function main() {
       cmdStatus();
       break;
   }
+}
+
+// ── init-gcloud (全自動 Google API 設定) ─────────────────────────
+function runCmd(cmd: string, label: string): boolean {
+  try {
+    execSync(cmd, { stdio: 'inherit' });
+    return true;
+  } catch {
+    console.error(`❌ ${label} 失敗`);
+    return false;
+  }
+}
+
+function runCmdSilent(cmd: string): string {
+  try {
+    return execSync(cmd, { encoding: 'utf-8' }).trim();
+  } catch {
+    return '';
+  }
+}
+
+async function cmdInitGcloud() {
+  console.log('');
+  console.log('🚀 全自動 Google API 設定');
+  console.log('   只需要在瀏覽器點兩次「允許」就搞定！');
+  console.log('');
+
+  // Step 0: Check gcloud is installed
+  const gcloudVersion = runCmdSilent('gcloud --version');
+  if (!gcloudVersion) {
+    console.error('❌ 找不到 gcloud CLI');
+    console.error('');
+    if (process.platform === 'darwin') {
+      console.error('請先安裝：brew install google-cloud-sdk');
+    } else {
+      console.error('請先安裝：https://cloud.google.com/sdk/docs/install');
+    }
+    process.exit(1);
+  }
+  console.log('✅ 找到 gcloud CLI');
+
+  // Step 1: gcloud auth login
+  console.log('');
+  console.log('━━━ 第 1 步：登入 Google 帳號 ━━━');
+  console.log('（瀏覽器會自動打開，請登入並按「允許」）');
+  console.log('');
+  if (!runCmd('gcloud auth login --brief', '登入 Google 帳號')) {
+    process.exit(1);
+  }
+  console.log('✅ Google 帳號已登入');
+
+  // Get account email
+  const email = runCmdSilent('gcloud config get-value account 2>/dev/null');
+  if (email) {
+    console.log(`   帳號：${email}`);
+  }
+
+  // Step 2: Create project (or use existing)
+  console.log('');
+  console.log('━━━ 第 2 步：建立 Google Cloud 專案 ━━━');
+  const projectId = `sheet-helper-${Date.now().toString(36)}`;
+  const createResult = runCmdSilent(`gcloud projects create ${projectId} --name="車輛管理" 2>&1`);
+
+  if (createResult.includes('already exists') || createResult.includes('ALREADY_EXISTS')) {
+    console.log(`ℹ️ 使用既有專案：${projectId}`);
+  } else if (createResult.includes('ERROR')) {
+    // Try to use existing project
+    const existingProject = runCmdSilent('gcloud config get-value project 2>/dev/null');
+    if (existingProject) {
+      console.log(`ℹ️ 無法建立新專案，使用目前專案：${existingProject}`);
+    } else {
+      console.error('❌ 無法建立 Google Cloud 專案');
+      console.error(createResult);
+      process.exit(1);
+    }
+  } else {
+    console.log(`✅ 已建立專案：${projectId}`);
+  }
+
+  // Set project
+  const activeProject = runCmdSilent(`gcloud config set project ${projectId} 2>&1`) ? projectId
+    : runCmdSilent('gcloud config get-value project 2>/dev/null');
+  console.log(`   使用專案：${activeProject}`);
+
+  // Step 3: Enable Sheets API
+  console.log('');
+  console.log('━━━ 第 3 步：啟用 Google Sheets API ━━━');
+  runCmd(`gcloud services enable sheets.googleapis.com --project=${activeProject}`, '啟用 Sheets API');
+  console.log('✅ Google Sheets API 已啟用');
+
+  // Step 4: ADC login with scopes
+  console.log('');
+  console.log('━━━ 第 4 步：取得應用程式憑證 ━━━');
+  console.log('（瀏覽器會再打開一次，請按「允許」）');
+  console.log('');
+
+  const scopeStr = 'https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/userinfo.email';
+  if (!runCmd(
+    `gcloud auth application-default login --scopes=${scopeStr}`,
+    '取得應用程式憑證'
+  )) {
+    process.exit(1);
+  }
+
+  // Set quota project
+  runCmdSilent(`gcloud auth application-default set-quota-project ${activeProject} 2>&1`);
+
+  console.log('✅ 應用程式憑證已取得');
+
+  // Verify
+  console.log('');
+  console.log('━━━ 驗證設定 ━━━');
+
+  if (hasAdc()) {
+    console.log('✅ Google API 設定完成！');
+  } else {
+    console.error('❌ 找不到應用程式憑證，請重新執行');
+    process.exit(1);
+  }
+
+  if (email) {
+    console.log(`   登入帳號：${email}`);
+    console.log(`   記得把你的 Google 表格分享給 ${email}（如果你是表格擁有者就不用）`);
+  }
+
+  // Save gcloud project to env
+  writeEnvValue('GCLOUD_PROJECT', activeProject);
+
+  const status = checkStatus();
+  printNextStep(status);
+
+  console.log('');
 }
 
 // ── credentials <path> ──────────────────────────────────────────
@@ -120,7 +258,7 @@ async function cmdSpreadsheet(input: string) {
 
   // Try to verify if we have credentials
   const status = checkStatus();
-  if (status.credentialsValid && status.hasToken) {
+  if (status.authReady) {
     const auth = await authorize();
     try {
       const sheets = google.sheets({ version: 'v4', auth });
@@ -337,13 +475,15 @@ function cmdGuide() {
 function cmdStatus() {
   const status = checkStatus();
 
+  const authLabel = status.hasAdc ? '— gcloud（自動）' : status.credentialsValid ? '— credentials.json' : '';
+  const authOk = status.authReady;
+
   console.log(`\n🚗 Sheet Helper 設定狀態\n`);
-  console.log(`  ${status.credentialsValid ? '✅' : '❌'} Google API 憑證    ${status.credentialsValid ? '— 已設定' : ''}`);
-  console.log(`  ${status.hasToken ? '✅' : '❌'} Google 帳號授權    ${status.hasToken ? '— 已授權' : ''}`);
+  console.log(`  ${authOk ? '✅' : '❌'} Google API 認證    ${authLabel}`);
   console.log(`  ${status.hasSpreadsheetId ? '✅' : '❌'} Google Sheets      ${status.hasSpreadsheetId ? `— ${status.spreadsheetId!.slice(0, 12)}...` : ''}`);
   console.log(`  ${status.carPromptsValid ? '✅' : '❌'} car-prompts 資料夾 ${status.carPromptsValid ? `— ${status.carPromptsPath}（${status.carCount} 台車）` : ''}`);
 
-  const allDone = status.credentialsValid && status.hasToken && status.hasSpreadsheetId && status.carPromptsValid;
+  const allDone = authOk && status.hasSpreadsheetId && status.carPromptsValid;
 
   if (allDone) {
     console.log(`\n🎉 設定完成！可以開始使用：`);
@@ -359,12 +499,11 @@ function cmdStatus() {
 // ── status (JSON for CLI tools like Gemini) ─────────────────────
 function cmdStatusJson() {
   const status = checkStatus();
-  const allDone = status.credentialsValid && status.hasToken && status.hasSpreadsheetId && status.carPromptsValid;
+  const allDone = status.authReady && status.hasSpreadsheetId && status.carPromptsValid;
 
   const output = {
     ready: allDone,
-    credentials: { ok: status.credentialsValid },
-    auth: { ok: status.hasToken },
+    auth: { ok: status.authReady, method: status.hasAdc ? 'gcloud-adc' : status.credentialsValid ? 'credentials.json' : 'none' },
     spreadsheet: { ok: status.hasSpreadsheetId, id: status.spreadsheetId },
     carPrompts: {
       ok: status.carPromptsValid,
@@ -379,8 +518,7 @@ function cmdStatusJson() {
 
 // ── Helpers ─────────────────────────────────────────────────────
 function getNextStepCommand(status: ReturnType<typeof checkStatus>): string {
-  if (!status.credentialsValid) return 'npm run setup -- credentials <path-to-json>';
-  if (!status.hasToken) return 'npm run setup -- auth';
+  if (!status.authReady) return 'npm run setup -- init-gcloud';
   if (!status.hasSpreadsheetId) return 'npm run setup -- spreadsheet <url>';
   if (!status.carPromptsValid) return 'npm run setup -- car-prompts <path>';
   return '';

@@ -29,21 +29,59 @@ cp sheet-helper/汽車維護.code-workspace ../汽車維護.code-workspace
 
 之後使用者只要雙擊這個檔案，就能在 VS Code 同時開啟 car-prompts、post-helper、sheet-helper 三個專案。
 
-### 1. 先檢查設定狀態
+### 1. 確認 gcloud CLI 已安裝
+
+```bash
+gcloud --version
+```
+
+如果沒有安裝：
+```bash
+brew install google-cloud-sdk
+```
+
+### 2. 全自動設定 Google API（推薦方式）
 
 ```bash
 cd sheet-helper
 npm install
-npm run setup -- status
+npm run setup -- init-gcloud
 ```
 
-這會輸出 JSON，告訴你哪些設定還沒完成，以及 `nextStep` 欄位會告訴你下一步該執行什麼。
+這個指令會自動完成以下所有事情：
+1. 登入 Google 帳號（瀏覽器會打開，使用者只需要按「允許」）
+2. 建立 Google Cloud 專案
+3. 啟用 Google Sheets API
+4. 取得應用程式憑證（瀏覽器會再打開一次，使用者按「允許」）
 
-### 2. 依照缺少的設定逐步引導
+**使用者全程只需要在瀏覽器按兩次「允許」，其他全自動。**
 
-#### 如果缺少 credentials（Google API 憑證）
+### 3. 連結 Google Sheets
 
-告訴使用者需要取得 Google OAuth 憑證，引導他：
+請使用者提供他的車輛庫存 Google Sheets 網址，然後執行：
+```bash
+npm run setup -- spreadsheet "<Google Sheets 網址>"
+```
+
+如果出現權限錯誤，程式會顯示目前登入的 email，請使用者去表格的「共用」設定中加入該 email。
+
+### 4. 連結 car-prompts 資料夾
+
+car-prompts 專案通常就在隔壁資料夾：
+```bash
+npm run setup -- car-prompts "../car-prompts"
+```
+
+### 5. 確認設定完成
+
+```bash
+npm run setup -- status
+```
+當 `"ready": true` 時，所有設定完成。
+
+### 備用方式：手動設定 Google API
+
+如果 gcloud CLI 無法使用，可以改用手動方式：
 
 1. 開啟 https://console.cloud.google.com/projectcreate 建立專案
 2. 開啟 https://console.cloud.google.com/apis/library/sheets.googleapis.com 啟用 Sheets API
@@ -52,39 +90,11 @@ npm run setup -- status
 4. 開啟 https://console.cloud.google.com/apis/credentials/oauthclient 建立憑證
    - 類型選「桌面應用程式」
    - **重要：在「授權的重新導向 URI」加入 `http://localhost:3456/oauth2callback`**
-5. 下載 JSON 檔案
-6. 執行：
+5. 下載 JSON 檔案後執行：
 ```bash
 npm run setup -- credentials "<下載的 JSON 檔案路徑>"
-```
-
-#### 如果缺少 auth（Google 帳號授權）
-
-```bash
 npm run setup -- auth
 ```
-這會自動開啟瀏覽器，使用者登入 Google 後授權即完成。不需要任何手動輸入。
-
-#### 如果缺少 spreadsheet（Google Sheets 連結）
-
-請使用者提供他的車輛庫存 Google Sheets 網址，然後執行：
-```bash
-npm run setup -- spreadsheet "<Google Sheets 網址>"
-```
-
-#### 如果缺少 car-prompts（car-prompts 資料夾路徑）
-
-car-prompts 專案通常就在隔壁資料夾。自動偵測：
-```bash
-npm run setup -- car-prompts "../car-prompts"
-```
-
-### 3. 確認設定完成
-
-```bash
-npm run setup -- status
-```
-當 `"ready": true` 時，所有設定完成。
 
 ## 日常操作指令
 
@@ -97,14 +107,14 @@ npm run setup -- status
 | `npm run folders` | 為未 PO 車輛在 car-prompts 建立資料夾 |
 | `npm run fix-width` | 調整整合庫存表的欄寬 |
 | `npm run setup` | 查看/修改設定 |
-| `npm run setup -- guide` | 顯示完整設定教學 |
+| `npm run setup -- init-gcloud` | 重新設定 Google API |
 
 ## 常見任務
 
 - **「幫我更新庫存」** → 執行 `npm run integrate`
 - **「有哪些車還沒 PO？」** → 執行 `npm run status`
 - **「幫沒 PO 的車建資料夾」** → 執行 `npm run folders`
-- **「重新設定 Google 帳號」** → 執行 `npm run setup -- reset-auth`
+- **「重新設定 Google 帳號」** → 執行 `npm run setup -- init-gcloud`
 
 ## 重要規則
 

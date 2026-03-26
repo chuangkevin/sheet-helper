@@ -1,9 +1,10 @@
 import { google } from 'googleapis';
+import { GoogleAuth } from 'google-auth-library';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as http from 'http';
-// Note: using WHATWG URL API instead of deprecated url.parse
 import * as dotenv from 'dotenv';
+import { execSync } from 'child_process';
 
 dotenv.config();
 
@@ -19,12 +20,26 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 
+// ADC path (gcloud auth application-default login)
+function getAdcPath(): string {
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA || '', 'gcloud', 'application_default_credentials.json');
+  }
+  return path.join(process.env.HOME || '', '.config', 'gcloud', 'application_default_credentials.json');
+}
+
+export function hasAdc(): boolean {
+  return fs.existsSync(getAdcPath());
+}
+
 // ── Status types ────────────────────────────────────────────────
 export interface PreflightStatus {
   hasNodeModules: boolean;
   hasCredentials: boolean;
   credentialsValid: boolean;
   hasToken: boolean;
+  hasAdc: boolean;            // gcloud ADC available
+  authReady: boolean;         // either (credentials+token) or ADC
   hasEnv: boolean;
   hasSpreadsheetId: boolean;
   spreadsheetId: string | null;
@@ -48,6 +63,8 @@ export function checkStatus(): PreflightStatus {
   }
 
   const hasToken = fs.existsSync(TOKEN_PATH);
+  const adcAvailable = hasAdc();
+  const authReady = (credentialsValid && hasToken) || adcAvailable;
 
   const hasEnv = fs.existsSync(ENV_PATH);
   let spreadsheetId: string | null = null;
@@ -75,6 +92,8 @@ export function checkStatus(): PreflightStatus {
     hasCredentials,
     credentialsValid,
     hasToken,
+    hasAdc: adcAvailable,
+    authReady,
     hasEnv,
     hasSpreadsheetId,
     spreadsheetId: hasSpreadsheetId ? spreadsheetId : null,
@@ -96,10 +115,22 @@ export async function getAuthorizedEmail(auth: any): Promise<string | null> {
   }
 }
 
-// ── Authorize (consolidated OAuth flow) ─────────────────────────
+// ── Authorize (try ADC first, then credentials.json) ────────────
 export async function authorize(): Promise<any> {
+  // Strategy 1: ADC (gcloud auth application-default login)
+  if (hasAdc()) {
+    try {
+      const auth = new GoogleAuth({ scopes: SCOPES });
+      const client = await auth.getClient();
+      return client;
+    } catch {
+      // ADC failed, try credentials.json
+    }
+  }
+
+  // Strategy 2: Traditional credentials.json + token.json
   if (!fs.existsSync(CREDENTIALS_PATH)) {
-    throw new Error('credentials.json 不存在，請先執行 npm run setup credentials <path>');
+    throw new Error('找不到 Google 憑證。請執行 npm run setup -- init-gcloud 自動設定，或 npm run setup -- credentials <path> 手動設定');
   }
 
   const content = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf-8'));
@@ -182,9 +213,9 @@ export async function preflight(options?: { needCarPrompts?: boolean }): Promise
   const status = checkStatus();
   const needCar = options?.needCarPrompts ?? true;
 
-  if (!status.credentialsValid) {
-    console.error('❌ 還沒設定好，請先執行：npm run setup');
-    console.error('   （缺少 Google 憑證）');
+  if (!status.authReady) {
+    console.error('❌ 還沒設定好，請先執行：npm run setup -- init-gcloud');
+    console.error('   （缺少 Google 憑證，init-gcloud 可以全自動搞定）');
     process.exit(1);
   }
 
